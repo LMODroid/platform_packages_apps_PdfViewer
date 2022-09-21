@@ -38,7 +38,7 @@ android {
     namespace = "app.grapheneos.pdfviewer"
 
     defaultConfig {
-        applicationId = "app.grapheneos.pdfviewer"
+        applicationId = "com.libremobileos.pdfviewer"
         minSdk = 26
         targetSdk = 33
         versionCode = 15
