@@ -14,7 +14,7 @@
 // limitations under the License.
 
 android_app {
-    name: "PdfViewer",
+    name: "LMOPdfViewer",
 
     asset_dirs: ["src/main/assets"],
     resource_dirs: ["src/main/res"],
