@@ -1,18 +1,6 @@
-buildscript {
-    repositories {
-        // dependabot cannot handle google()
-        maven {
-            url = uri("https://dl.google.com/dl/android/maven2")
-        }
-        // dependabot cannot handle mavenCentral()
-        maven {
-            url = uri("https://repo.maven.apache.org/maven2")
-        }
-    }
-    dependencies {
-        classpath("com.android.tools.build:gradle:7.3.0")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.10")
-    }
+plugins {
+    id("com.android.application") version "8.5.1" apply false
+    id("org.jetbrains.kotlin.android") version "2.0.10" apply false
 }
 
 allprojects {
@@ -21,8 +9,4 @@ allprojects {
         compilerArgs.add("-Xlint:unchecked")
         compilerArgs.add("-Xlint:deprecation")
     }
-}
-
-tasks.register("clean", Delete::class) {
-    delete(rootProject.buildDir)
 }

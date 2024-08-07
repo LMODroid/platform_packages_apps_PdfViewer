@@ -1,5 +1,6 @@
-import java.util.Properties
 import java.io.FileInputStream
+import java.util.Properties
+import org.apache.tools.ant.taskdefs.condition.Os
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val useKeystoreProperties = keystorePropertiesFile.canRead()
@@ -11,6 +12,12 @@ if (useKeystoreProperties) {
 plugins {
     id("com.android.application")
     id("kotlin-android")
+}
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    }
 }
 
 android {
@@ -32,16 +39,16 @@ android {
         }
     }
 
-    compileSdk = 32
-    buildToolsVersion = "33.0.0"
+    compileSdk = 34
+    buildToolsVersion = "35.0.0"
 
     namespace = "app.grapheneos.pdfviewer"
 
     defaultConfig {
         applicationId = "com.libremobileos.pdfviewer"
         minSdk = 26
-        targetSdk = 33
-        versionCode = 15
+        targetSdk = 34
+        versionCode = 20
         versionName = versionCode.toString()
         resourceConfigurations.add("en")
     }
@@ -70,20 +77,40 @@ android {
 
         buildFeatures {
             viewBinding = true
+            buildConfig = true
         }
-    }
-
-    compileOptions {
-        sourceCompatibility(JavaVersion.VERSION_11)
-        targetCompatibility(JavaVersion.VERSION_11)
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
     }
 }
 
 dependencies {
-    implementation("androidx.appcompat:appcompat:1.5.1")
-    implementation("com.google.android.material:material:1.6.1")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.core:core:1.13.1")
+    implementation("com.google.android.material:material:1.12.0")
+}
+
+fun getCommand(command: String, winExt: String = "cmd"): String {
+    return if (Os.isFamily(Os.FAMILY_WINDOWS)) "$command.$winExt" else command
+}
+
+val npmSetup = tasks.register("npmSetup", Exec::class) {
+    workingDir = rootDir
+    commandLine(getCommand("npm"), "ci", "--ignore-scripts")
+}
+
+val processStatic = tasks.register("processStatic", Exec::class) {
+    workingDir = rootDir
+    dependsOn(npmSetup)
+    commandLine(getCommand("node", "exe"), "process_static.js")
+}
+
+val cleanStatic = tasks.register("cleanStatic", Delete::class) {
+    delete("src/main/assets/viewer", "src/debug/assets/viewer")
+}
+
+tasks.preBuild {
+    dependsOn(processStatic)
+}
+
+tasks.clean {
+    dependsOn(cleanStatic)
 }

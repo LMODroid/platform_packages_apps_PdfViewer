@@ -1,36 +1,23 @@
-body, canvas {
-    padding: 0;
-    margin: 0;
-}
-
-canvas {
-    margin: auto;
-    display: block;
-}
-
-body {
-    background-color: #c0c0c0;
+:root {
+    --text-layer-opacity: 0.2;
+    --text-layer-foreground: transparent;
 }
 
 .textLayer {
-    position: absolute;
     text-align: initial;
-    left: 0;
-    top: 0;
-    right: 0;
-    bottom: 0;
+    position: absolute;
     overflow: hidden;
-    opacity: 0.2;
+    opacity: var(--text-layer-opacity);
     line-height: 1;
 }
 
 .textLayer span,
 .textLayer br {
-    color: transparent;
+    color: var(--text-layer-foreground);
     position: absolute;
     white-space: pre;
     cursor: text;
-    transform-origin: 0% 0%;
+    transform-origin: 0 0;
 }
 
 .textLayer .highlight {

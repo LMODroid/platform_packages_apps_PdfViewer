@@ -1,12 +1,18 @@
-"use strict";
+import {
+    GlobalWorkerOptions,
+    PasswordResponses,
+    TextLayer,
+    getDocument,
+} from "pdfjs-dist";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.js";
+GlobalWorkerOptions.workerSrc = "/viewer/js/worker.js";
 
 let pdfDoc = null;
 let pageRendering = false;
 let renderPending = false;
 let renderPendingZoom = 0;
-const canvas = document.getElementById('content');
+const canvas = document.getElementById("content");
+const container = document.getElementById("container");
 let orientationDegrees = 0;
 let zoomRatio = 1;
 let textLayerDiv = document.getElementById("text");
@@ -18,6 +24,8 @@ let useRender;
 
 const cache = [];
 const maxCached = 6;
+
+let isTextLayerVisible = false;
 
 function maybeRenderNextPage() {
     if (renderPending) {
@@ -61,6 +69,21 @@ function display(newCanvas, zoom) {
     }
 }
 
+function setLayerTransform(pageWidth, pageHeight, layerDiv) {
+    const translate = {
+        X: Math.max(0, pageWidth - document.body.clientWidth) / 2,
+        Y: Math.max(0, pageHeight - document.body.clientHeight) / 2
+    };
+    layerDiv.style.translate = `${translate.X}px ${translate.Y}px`;
+}
+
+function getDefaultZoomRatio(page, orientationDegrees) {
+    const viewport = page.getViewport({scale: 1, rotation: orientationDegrees});
+    const widthZoomRatio = document.body.clientWidth / viewport.width;
+    const heightZoomRatio = document.body.clientHeight / viewport.height;
+    return Math.max(Math.min(widthZoomRatio, heightZoomRatio, channel.getMaxZoomRatio()), channel.getMinZoomRatio());
+}
+
 function renderPage(pageNumber, zoom, prerender, prerenderTrigger=0) {
     pageRendering = true;
     useRender = !prerender;
@@ -73,7 +96,7 @@ function renderPage(pageNumber, zoom, prerender, prerenderTrigger=0) {
     for (let i = 0; i < cache.length; i++) {
         const cached = cache[i];
         if (cached.pageNumber === pageNumber && cached.zoomRatio === newZoomRatio &&
-                cache.orientationDegrees === orientationDegrees) {
+                cached.orientationDegrees === orientationDegrees) {
             if (useRender) {
                 cache.splice(i, 1);
                 cache.push(cached);
@@ -82,6 +105,8 @@ function renderPage(pageNumber, zoom, prerender, prerenderTrigger=0) {
 
                 textLayerDiv.replaceWith(cached.textLayerDiv);
                 textLayerDiv = cached.textLayerDiv;
+                setLayerTransform(cached.pageWidth, cached.pageHeight, textLayerDiv);
+                container.style.setProperty("--scale-factor", newZoomRatio.toString());
             }
 
             pageRendering = false;
@@ -95,7 +120,15 @@ function renderPage(pageNumber, zoom, prerender, prerenderTrigger=0) {
             return;
         }
 
-        const viewport = page.getViewport({scale: newZoomRatio, rotation: orientationDegrees})
+        const defaultZoomRatio = getDefaultZoomRatio(page, orientationDegrees);
+
+        if (cache.length === 0) {
+            zoomRatio = defaultZoomRatio;
+            newZoomRatio = defaultZoomRatio;
+            channel.setZoomRatio(defaultZoomRatio);
+        }
+
+        const viewport = page.getViewport({scale: newZoomRatio, rotation: orientationDegrees});
 
         if (useRender) {
             if (newZoomRatio !== zoomRatio) {
@@ -105,13 +138,13 @@ function renderPage(pageNumber, zoom, prerender, prerenderTrigger=0) {
             zoomRatio = newZoomRatio;
         }
 
-        if (zoom == 2) {
+        if (zoom === 2) {
             pageRendering = false;
             return;
         }
 
         const newCanvas = document.createElement("canvas");
-        const ratio = window.devicePixelRatio;
+        const ratio = globalThis.devicePixelRatio;
         newCanvas.height = viewport.height * ratio;
         newCanvas.width = viewport.width * ratio;
         newCanvas.style.height = viewport.height + "px";
@@ -137,35 +170,51 @@ function renderPage(pageNumber, zoom, prerender, prerenderTrigger=0) {
             }
             render();
 
-            const textLayerFrag = document.createDocumentFragment();
-            task = pdfjsLib.renderTextLayer({
-                textContentStream: page.streamTextContent(),
-                container: textLayerFrag,
+            const newTextLayerDiv = textLayerDiv.cloneNode();
+            const textLayer = new TextLayer({
+                textContentSource: page.streamTextContent(),
+                container: newTextLayerDiv,
                 viewport: viewport
             });
+            task = {
+                promise: textLayer.render(),
+                cancel: () => textLayer.cancel()
+            };
             task.promise.then(function() {
                 task = null;
 
                 render();
 
-                const newTextLayerDiv = textLayerDiv.cloneNode();
-                newTextLayerDiv.style.height = newCanvas.style.height;
-                newTextLayerDiv.style.width = newCanvas.style.width;
+                // We use CSS transform to rotate a text layer div of zero
+                // degrees rotation. So, when the rotation is 90 or 270
+                // degrees, set width and height of the text layer div to the
+                // height and width of the canvas, respectively, to prevent
+                // text layer misalignment.
+                if (orientationDegrees % 180 === 0) {
+                    newTextLayerDiv.style.height = newCanvas.style.height;
+                    newTextLayerDiv.style.width = newCanvas.style.width;
+                } else {
+                    newTextLayerDiv.style.height = newCanvas.style.width;
+                    newTextLayerDiv.style.width = newCanvas.style.height;
+                }
+                setLayerTransform(viewport.width, viewport.height, newTextLayerDiv);
                 if (useRender) {
                     textLayerDiv.replaceWith(newTextLayerDiv);
                     textLayerDiv = newTextLayerDiv;
+                    container.style.setProperty("--scale-factor", newZoomRatio.toString());
                 }
-                newTextLayerDiv.appendChild(textLayerFrag);
 
                 if (cache.length === maxCached) {
-                    cache.shift()
+                    cache.shift();
                 }
                 cache.push({
                     pageNumber: pageNumber,
                     zoomRatio: newZoomRatio,
                     orientationDegrees: orientationDegrees,
                     canvas: newCanvas,
-                    textLayerDiv: newTextLayerDiv
+                    textLayerDiv: newTextLayerDiv,
+                    pageWidth: viewport.width,
+                    pageHeight: viewport.height
                 });
 
                 pageRendering = false;
@@ -175,7 +224,7 @@ function renderPage(pageNumber, zoom, prerender, prerenderTrigger=0) {
     });
 }
 
-function onRenderPage(zoom) {
+globalThis.onRenderPage = function (zoom) {
     if (pageRendering) {
         if (newPageNumber === channel.getPage() && newZoomRatio === channel.getZoomRatio() &&
                 orientationDegrees === channel.getDocumentOrientationDegrees()) {
@@ -192,22 +241,38 @@ function onRenderPage(zoom) {
     } else {
         renderPage(channel.getPage(), zoom, false);
     }
-}
+};
 
-function isTextSelected() {
-    return window.getSelection().toString() !== "";
-}
+globalThis.isTextSelected = function () {
+    return globalThis.getSelection().toString() !== "";
+};
 
-function loadDocument() {
+globalThis.toggleTextLayerVisibility = function () {
+    let textLayerForeground = "red";
+    let textLayerOpacity = 1;
+    if (isTextLayerVisible) {
+        textLayerForeground = "transparent";
+        textLayerOpacity = 0.2;
+    }
+    document.documentElement.style.setProperty("--text-layer-foreground", textLayerForeground);
+    document.documentElement.style.setProperty("--text-layer-opacity", textLayerOpacity.toString());
+    isTextLayerVisible = !isTextLayerVisible;
+};
+
+globalThis.loadDocument = function () {
     const pdfPassword = channel.getPassword();
-    const loadingTask = pdfjsLib.getDocument({ url: "https://localhost/placeholder.pdf", password: pdfPassword });
+    const loadingTask = getDocument({
+        url: "https://localhost/placeholder.pdf",
+        password: pdfPassword,
+        isEvalSupported: false
+    });
     loadingTask.onPassword = (_, error) => {
-        if (error === pdfjsLib.PasswordResponses.NEED_PASSWORD) {
+        if (error === PasswordResponses.NEED_PASSWORD) {
             channel.showPasswordPrompt();
-        } else if (error === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD) {
+        } else if (error === PasswordResponses.INCORRECT_PASSWORD) {
             channel.invalidPassword();
         }
-    }
+    };
 
     loadingTask.promise.then(function (newDoc) {
         channel.onLoaded();
@@ -222,4 +287,8 @@ function loadDocument() {
     }, function (reason) {
         console.error(reason.name + ": " + reason.message);
     });
-}
+};
+
+globalThis.onresize = () => {
+    setLayerTransform(canvas.clientWidth, canvas.clientHeight, textLayerDiv);
+};
